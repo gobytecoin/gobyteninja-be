@@ -1,26 +1,26 @@
 <?php
 
 /*
-    This file is part of Dash Ninja.
-    https://github.com/elbereth/dashninja-be
+    This file is part of GoByte Ninja.
+    https://github.com/gobytecoin/gobyteninja-be
 
-    Dash Ninja is free software: you can redistribute it and/or modify
+    GoByte Ninja is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Dash Ninja is distributed in the hope that it will be useful,
+    GoByte Ninja is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Dash Ninja.  If not, see <http://www.gnu.org/licenses/>.
+    along with GoByte Ninja.  If not, see <http://www.gnu.org/licenses/>.
 
  */
 
 /*****************************************************************************
- * Dash Ninja Back-end Private REST API                                      *
+ * GoByte Ninja Back-end Private REST API                                    *
  *---------------------------------------------------------------------------*
  * This script is the backend interface between hubs                         *
  * It is the foundation for all other scripts, it is private API and is not  *
@@ -53,19 +53,22 @@ $eventManager->attach('micro', function($event, $app) use ($mysqli) {
 
     // The server should have the TLS client certificate information and the remote peer address
     // If not, just fail early
-    if (!array_key_exists("VERIFIED",$_SERVER) || ($_SERVER['VERIFIED'] != "SUCCESS")
-     || !array_key_exists("DN",$_SERVER) || (strlen($_SERVER['DN'])==0)
-     || !array_key_exists("REMOTE_ADDR",$_SERVER) || (strlen($_SERVER['REMOTE_ADDR'])==0)) {
-      $response = new Phalcon\Http\Response();
-      $response->setStatusCode(401, "Unauthorized");
-      //Send errors to the client
-      $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Missing/Wrong TLS client certificate')));
-      $response->send();
-      return false;
-    }
+    /** localhost authorized
+    *if ((0 == 1 && (!array_key_exists("VERIFIED",$_SERVER) || ($_SERVER['VERIFIED'] != "SUCCESS")
+    * || !array_key_exists("DN",$_SERVER) || (strlen($_SERVER['DN'])==0)))
+    * || !array_key_exists("REMOTE_ADDR",$_SERVER) || (strlen($_SERVER['REMOTE_ADDR'])==0)) {
+    *  $response = new Phalcon\Http\Response();
+    *  //Send errors to the client
+    *  $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('Missing/Wrong TLS client certificate')));
+    *  $response->send();
+    *  return false;
+    *}
+    **/
     // The server could not connect to the MySQL database
     // Means we are out of business
-    elseif ($mysqli->connect_errno != 0) {
+    // localhost authorized
+    // elseif ($mysqli->connect_errno != 0) {
+    if ($mysqli->connect_errno != 0) {
       $response = new Phalcon\Http\Response();
       //Change the HTTP status
       $response->setStatusCode(503, "Service Unavailable");
@@ -75,27 +78,45 @@ $eventManager->attach('micro', function($event, $app) use ($mysqli) {
       return false;
     }
     // Now we need to check the peer is a known/allowed hub (via its client certificate and the remote address)
-    $cacheserial = sha1($_SERVER['DN']);
-    $cacheserial2 = sha1($_SERVER['REMOTE_ADDR']);
-    $cachefnam = CACHEFOLDER.sprintf("dashninja_cmd_hubcheck_%s_%s",$cacheserial,$cacheserial2);
-    $cachevalid = (is_readable($cachefnam) && ((filemtime($cachefnam)+7200)>=time()));
-    if ($cachevalid) {
-      $data = unserialize(file_get_contents($cachefnam));
-      $result = $data["result"];
-      $authinfo = $data["authinfo"];
-    }
-    else {
-      $sql = "SELECT HubId, HubEnabled, HubDescription FROM cmd_hub WHERE HubCertificate = '%s' AND HubIPv6 = inet6_aton('%s')";
-      $sqlx = sprintf($sql,$mysqli->real_escape_string($_SERVER['DN'])
-                          ,$mysqli->real_escape_string($_SERVER['REMOTE_ADDR']));
-      $result = $mysqli->query($sqlx);
-      if ($result !== false) {
-        // If the query is a success, we retrieve the first result (should be the only one)
-        $authinfo = $result->fetch_assoc();
-        $result->close();
+    /** localhost authorized
+    *$cacheserial = sha1($_SERVER['DN']);
+    *$cacheserial2 = sha1($_SERVER['REMOTE_ADDR']);
+    *$cachefnam = CACHEFOLDER.sprintf("gobyteninja_cmd_hubcheck_%s_%s",$cacheserial,$cacheserial2);
+    *$cachevalid = (is_readable($cachefnam) && ((filemtime($cachefnam)+7200)>=time()));
+    *if ($cachevalid) {
+    *  $data = unserialize(file_get_contents($cachefnam));
+    *  $result = $data["result"];
+    *  $authinfo = $data["authinfo"];
+    *}
+    *else {
+    *  $sql = "SELECT HubId, HubEnabled, HubDescription FROM cmd_hub WHERE HubCertificate = '%s' AND HubIPv6 = inet6_aton('%s')";
+    *  $sqlx = sprintf($sql,$mysqli->real_escape_string($_SERVER['DN'])
+    *                      ,$mysqli->real_escape_string($_SERVER['REMOTE_ADDR']));
+    **/
+    $sqlx = "SELECT HubId, HubEnabled, HubCertificate, HubDescription FROM cmd_hub WHERE HubIPv6 = inet6_aton('127.0.0.1')";
+    $result = $mysqli->query($sqlx);
+    /** localhost authorized
+    * if ($result !== false) {
+    *    // If the query is a success, we retrieve the first result (should be the only one)
+    *    $authinfo = $result->fetch_assoc();
+    *    $result->close();
+    *  }
+    *  $data = array("result" => $result, "authinfo" => $authinfo);
+    *  file_put_contents($cachefnam,serialize($data),LOCK_EX);
+    **/
+    if ($result !== false) {
+      // If the query is a success, we retrieve the first result (should be the only one)
+      $authinfo = $result->fetch_assoc();
+      //Check if remote IP is allowed hub - Allow localhost
+      if (($_SERVER['REMOTE_ADDR'] != '127.0.0.1') && (strpos($authinfo['HubCertificate'], $_SERVER['REMOTE_ADDR']) === false)) {
+         $response = new Phalcon\Http\Response();
+         $response->setStatusCode(401, "Unauthorized");
+         $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('IP client did not match a known hub',$_SERVER['REMOTE_ADDR'])));
+         $response->send();
+         $authinfo = false;
+         return false;
       }
-      $data = array("result" => $result, "authinfo" => $authinfo);
-      file_put_contents($cachefnam,serialize($data),LOCK_EX);
+      $result->close();
     }
     // If the query failed, something is wrong with MySQL
     // Means we are out of business
@@ -112,7 +133,7 @@ $eventManager->attach('micro', function($event, $app) use ($mysqli) {
       if (is_null($authinfo)) {
         $response = new Phalcon\Http\Response();
         $response->setStatusCode(401, "Unauthorized");
-        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('TLS client certificate did not match a known hub',$_SERVER['DN'],$_SERVER['REMOTE_ADDR'],$sql,$sqlx)));
+        $response->setJsonContent(array('status' => 'ERROR', 'messages' => array('TLS client certificate did not match a known hub',$_SERVER['DN'],$_SERVER['REMOTE_ADDR'])));
         $response->send();
         $authinfo = false;
         return false;
@@ -381,7 +402,7 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
   }
   else {
     // Retrieve all known nodes for current hub
-    $result = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],0);
+    $result = gobyteninja_cmd_getnodes($mysqli,$authinfo['HubId'],0);
     $numnodes = 0;
     $nodes = array();
     if (count($result) > 0) {
@@ -390,7 +411,7 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
         $nodes[$nodename] = $row['NodeId'];
       }
     }
-    $result = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],1);
+    $result = gobyteninja_cmd_getnodes($mysqli,$authinfo['HubId'],1);
     if (count($result) > 0) {
         foreach($result as $nodename => $row){
             $numnodes++;
@@ -440,10 +461,10 @@ $app->post('/blocks', function() use ($app,&$mysqli) {
           return $response;
         }
         if ($curratio[0] > -1) {
-          $stats[] = sprintf("('mnpaymentratio','%s',%d,'dashninja')",$curratio[0],time());
+          $stats[] = sprintf("('mnpaymentratio','%s',%d,'gobyteninja')",$curratio[0],time());
         }
         if ($curratio[1] > -1) {
-          $stats[] = sprintf("('mnpaymentratiotest','%s',%d,'dashninja')",$curratio[1],time());
+          $stats[] = sprintf("('mnpaymentratiotest','%s',%d,'gobyteninja')",$curratio[1],time());
         }
       }
 
@@ -616,17 +637,17 @@ EOT;
             if ($row["BlockTestNet"] == 1) {
               $statkey .= "test";
             }
-            $stats[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$row["TotalSupplyValue"],time());
+            $stats[] = sprintf("('%s','%s',%d,'gobyteninja')",$statkey,$row["TotalSupplyValue"],time());
             $statkey = "paymentdrk";
             if ($row["BlockTestNet"] == 1) {
               $statkey .= "test";
             }
-            $stats[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$row["TotalMNValue"],time());
+            $stats[] = sprintf("('%s','%s',%d,'gobyteninja')",$statkey,$row["TotalMNValue"],time());
             $statkey = "mnpayments";
             if ($row["BlockTestNet"] == 1) {
               $statkey .= "test";
             }
-            $stats[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,round(($row["NumPayed"]/$row["NumBlocks"])*100,2),time());
+            $stats[] = sprintf("('%s','%s',%d,'gobyteninja')",$statkey,round(($row["NumPayed"]/$row["NumBlocks"])*100,2),time());
           }
         }
       }
@@ -826,7 +847,7 @@ $app->get('/superblocksexpected', function() use ($app,&$mysqli) {
 });
 
 // Function to retrieve the masternode list
-function dashninja_masternodes_get($mysqli, $testnet = 0, $protocol = 0) {
+function gobyteninja_masternodes_get($mysqli, $testnet = 0, $protocol = 0) {
 
   $sqlmaxprotocol = sprintf("SELECT MAX(NodeProtocol) Protocol FROM cmd_nodes cn, cmd_nodes_status cns WHERE cn.NodeId = cns.NodeId AND NodeTestnet = %d GROUP BY NodeTestnet",$testnet);
   // Run the query
@@ -1267,7 +1288,7 @@ EOT;
             "MasternodeTor" => "",
             "MasternodePort" => intval($row["MasternodePort"]),
             "MasternodePubkey" => $row["MasternodePubkey"],
-            "MasternodeProtocol" => 70212,
+            "MasternodeProtocol" => 70208,
             "OperatorRewardAddress" => $row["OperatorRewardAddress"],
             "OperatorReward" => floatval($row["OperatorReward"]),
             "activeCount" => $active,
@@ -1519,9 +1540,9 @@ $app->get('/nodes', function() use ($app,&$mysqli) {
 
 });
 
-function dashninja_cmd_getnodes($mysqli,$hubid = -1,$testnet = 0) {
+function gobyteninja_cmd_getnodes($mysqli,$hubid = -1,$testnet = 0) {
 
-  $cachefnam = CACHEFOLDER.sprintf("dashninja_cmd_getnodes_%d_%d",$hubid,$testnet);
+  $cachefnam = CACHEFOLDER.sprintf("gobyteninja_cmd_getnodes_%d_%d",$hubid,$testnet);
   $cachevalid = (is_readable($cachefnam) && ((filemtime($cachefnam)+3600)>=time()));
   if ($cachevalid) {
     $nodes = unserialize(file_get_contents($cachefnam));
@@ -1595,7 +1616,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
   else {
     // Retrieve all known nodes for current hub
     $istestnet = intval($payload['testnet']);
-    $nodes = dashninja_cmd_getnodes($mysqli,$authinfo['HubId'],$istestnet);
+    $nodes = gobyteninja_cmd_getnodes($mysqli,$authinfo['HubId'],$istestnet);
     $numnodes = count($nodes);
     if ($numnodes > 0) {
       if ($numnodes == count($payload['nodes'])) {
@@ -2209,8 +2230,8 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $activemncount = 0;
           $uniquemnips = 0;
           dmn_masternodes_count($mysqli,$istestnet,$activemncount,$uniquemnips);
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnactive',$activemncount,time());
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",'mnuniqiptest',$uniquemnips,time());
+          $sqlstats2[] = sprintf("('%s','%s',%d,'gobyteninja')",'mnactive',$activemncount,time());
+          $sqlstats2[] = sprintf("('%s','%s',%d,'gobyteninja')",'mnuniqiptest',$uniquemnips,time());
 
           $teststr = "";
           if ($istestnet == 1) {
@@ -2229,7 +2250,7 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           $priceusd = $pricebtc*$tmp['usdbtc'];
           $activemncountath = $tmp["mnactiveath$teststr"];
           if ($activemncount > $activemncountath) {
-            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')","mnactiveath$teststr",$activemncount,time());
+            $sqlstats2[] = sprintf("('%s','%s',%d,'gobyteninja')","mnactiveath$teststr",$activemncount,time());
           }
 
           $sqlstats[] = sprintf("(%d,NOW(),%d,%d,%01.9f,%01.9f,%01.9f)",
@@ -2244,20 +2265,20 @@ $app->post('/ping', function() use ($app,&$mysqli) {
           if ($istestnet == 1) {
             $statkey .= "test";
           }
-          $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$networkhashps,time());
+          $sqlstats2[] = sprintf("('%s','%s',%d,'gobyteninja')",$statkey,$networkhashps,time());
           if ((isset($governancenextsuperblock)) && (!is_null($governancenextsuperblock)) && ($governancenextsuperblock > 0)) {
             $statkey = "governancesb";
             if ($istestnet == 1) {
               $statkey .= "test";
             }
-            $sqlstats2[] = sprintf("('%s','%s',%d,'dashninja')",$statkey,$governancenextsuperblock,time());
+            $sqlstats2[] = sprintf("('%s','%s',%d,'gobyteninja')",$statkey,$governancenextsuperblock,time());
           }
           if ((isset($governancebudget)) && (!is_null($governancebudget)) && ($governancebudget > 0)) {
             $statkey = "governancebudget";
             if ($istestnet == 1) {
               $statkey .= "test";
             }
-            $sqlstats2[] = sprintf("('%s','%s',%01.9f,'dashninja')", $statkey, $governancebudget, time());
+            $sqlstats2[] = sprintf("('%s','%s',%01.9f,'gobyteninja')", $statkey, $governancebudget, time());
           }
 
           $statsinfo = false;
@@ -2755,7 +2776,7 @@ $app->get('/portcheck/config', function() use ($app,&$mysqli) {
     $response->setJsonContent(array('status' => 'ERROR', 'messages' => 'Payload (or CONTENT_LENGTH) is missing'));
   }
   else {
-    $cachefnam = CACHEFOLDER."dashninja_cmd_portcheck_config";
+    $cachefnam = CACHEFOLDER."gobyteninja_cmd_portcheck_config";
     $cachevalid = (is_readable($cachefnam) && ((filemtime($cachefnam)+7200)>=time()));
     if ($cachevalid) {
       $config = unserialize(file_get_contents($cachefnam));
@@ -2928,7 +2949,7 @@ $app->post('/portcheck', function() use ($app,&$mysqli) {
 //   POST
 // Parameters (JSON body):
 //   thirdparties=array of keys/values (mandatory)
-//   dashwhale=array of keys/values (mandatory)
+//   gobytewhale=array of keys/values (mandatory)
 // Result (JSON body):
 //   status=OK|ERROR
 //   messages=array of error messages (only if status is ERROR)
@@ -2947,7 +2968,7 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
   if (!array_key_exists('CONTENT_LENGTH',$_SERVER) || (intval($_SERVER['CONTENT_LENGTH']) == 0)
       || !is_array($payload) || (count($payload) == 0)
       || !array_key_exists("thirdparties",$payload) || !is_array($payload["thirdparties"])
-      || !array_key_exists("dashwhale",$payload) || !is_array($payload["dashwhale"])) {
+      || !array_key_exists("gobytewhale",$payload) || !is_array($payload["gobytewhale"])) {
     //Change the HTTP status
     $response->setStatusCode(400, "Bad Request");
 
@@ -2985,9 +3006,9 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
       }
     }
 
-    // Dash Whale data
+    // GoByte Whale data
     $sqldwc = array();
-    foreach($payload["dashwhale"] as $proposal) {
+    foreach($payload["gobytewhale"] as $proposal) {
       $dwinfo = var_export($proposal,true);
       if (is_array($proposal) && (count($proposal) == 2)
       && array_key_exists("proposal",$proposal) && is_array($proposal["proposal"])
@@ -3026,7 +3047,7 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
     }
 
       if (count($sqldwc) > 0) {
-          $sql = "INSERT INTO cmd_budget_dashwhale_comments (BudgetHash, CommentHash, CommentUsername, CommentDate, "
+          $sql = "INSERT INTO cmd_budget_gobytewhale_comments (BudgetHash, CommentHash, CommentUsername, CommentDate, "
                 ."CommentOrder, CommentLevel, CommentRecentPost, CommentByOwner, CommentReplyURL, CommentContent)"
                 ." VALUES ".implode(',',$sqldwc)
                 ." ON DUPLICATE KEY UPDATE CommentUsername = VALUES(CommentUsername), CommentDate = VALUES(CommentDate), "
@@ -3051,7 +3072,7 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
     if (count($errors) == 0) {
         $response->setStatusCode(202, "Accepted");
         $response->setJsonContent(array('status' => 'OK', 'data' => array('thirdparties' => $statsinfo,
-                                                                          'dashwhale' => $dwinfo)));
+                                                                          'gobytewhale' => $dwinfo)));
     }
     else {
         $response->setStatusCode(503, "Service Unavailable");
@@ -3066,7 +3087,7 @@ $app->post('/thirdparties', function() use ($app,&$mysqli) {
 // ============================================================================
 // VERSIONS
 // ----------------------------------------------------------------------------
-// End-point for creating new version of dashd to use by the nodes
+// End-point for creating new version of gobyted to use by the nodes
 // HTTP method:
 //   POST
 // Parameters (JSON body):
